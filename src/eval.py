@@ -8,6 +8,9 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel
 
 from src.agent import Agent, Answer
 from src.llm import LLM
@@ -29,6 +32,13 @@ COMPANY_ALIASES = {
     "MSFT": ("microsoft", "msft"),
     "GOOGL": ("alphabet", "googl", "google"),
 }
+
+
+class JudgeVerdict(BaseModel):
+    correctness: Literal[0, 1]
+    groundedness: Literal[0, 1]
+    completeness: Literal[0, 1]
+    justification: str
 
 
 @dataclass
@@ -126,34 +136,19 @@ def score_llm_judge(
         evidence_summary=summarize_evidence(evidence),
         answer=answer_text,
     )
-    result = llm.chat([{"role": "user", "content": prompt}])
-    match = re.search(r"\{.*\}", result.message.content or "", re.DOTALL)
-    if not match:
-        return EvalResult(
-            "llm_judge",
-            False,
-            "judge did not return JSON",
-            judge_cost_usd=result.cost_usd,
-        )
-    try:
-        parsed = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return EvalResult(
-            "llm_judge", False, "judge JSON unparseable", judge_cost_usd=result.cost_usd
-        )
-
-    passed = bool(
-        parsed.get("correctness")
-        and parsed.get("groundedness")
-        and parsed.get("completeness")
+    result = llm.chat(
+        [{"role": "user", "content": prompt}], response_model=JudgeVerdict
     )
+    verdict: JudgeVerdict = result.parsed
+
+    passed = bool(verdict.correctness and verdict.groundedness and verdict.completeness)
     return EvalResult(
         method="llm_judge",
         passed=passed,
-        reason=parsed.get("justification", ""),
-        correctness=parsed.get("correctness"),
-        groundedness=parsed.get("groundedness"),
-        completeness=parsed.get("completeness"),
+        reason=verdict.justification,
+        correctness=verdict.correctness,
+        groundedness=verdict.groundedness,
+        completeness=verdict.completeness,
         judge_cost_usd=result.cost_usd,
     )
 
@@ -171,21 +166,43 @@ def score_question(llm: LLM, q: dict, answer: Answer) -> EvalResult:
     raise ValueError(f"Unknown evaluation method: {method}")
 
 
+def print_report(results: list[dict]) -> None:
+    n = len(results)
+    n_passed = sum(1 for r in results if r["passed"])
+    total_agent_cost = sum(r["cost_usd"] for r in results)
+    total_agent_latency = sum(r["latency_s"] for r in results)
+    total_judge_cost = sum(r["judge_cost_usd"] for r in results)
+
+    print("-" * 50)
+    print(f"accuracy    : {n_passed}/{n} ({round(100 * n_passed / n, 1)}%)")
+    print(
+        f"agent cost  : ${round(total_agent_cost, 5)} total, ${round(total_agent_cost / n, 6)}/query avg"
+    )
+    print(f"agent lat   : {round(total_agent_latency / n, 2)}s/query avg")
+    print(
+        f"judge cost  : ${round(total_judge_cost, 5)} total (evaluation-only overhead)"
+    )
+
+    step_cap_hits = [r["id"] for r in results if r["hit_step_cap"]]
+    if step_cap_hits:
+        print(f"step cap hit: {step_cap_hits}")
+
+    failed = [(r["id"], r["reason"]) for r in results if not r["passed"]]
+    if failed:
+        print("missed      :")
+        for qid, reason in failed:
+            print(f"  {qid}: {reason}")
+
+
 def main() -> None:
     llm = LLM()
     agent = Agent(llm=llm)
     questions = json.loads(QUESTIONS_PATH.read_text())
 
     results, dev_answers = [], {}
-    total_agent_latency, total_agent_cost, total_judge_cost = 0.0, 0.0, 0.0
-
     for q in questions:
         answer = agent.ask(q["question"])
         score = score_question(llm, q, answer)
-
-        total_agent_latency += answer.latency_s
-        total_agent_cost += answer.cost_usd
-        total_judge_cost += score.judge_cost_usd
 
         dev_answers[q["id"]] = answer.text
         results.append(
@@ -209,26 +226,7 @@ def main() -> None:
 
     DEV_ANSWERS_PATH.write_text(json.dumps(dev_answers, indent=2))
     TRACE_PATH.write_text(json.dumps(results, indent=2, default=str))
-
-    n = len(questions)
-    n_passed = sum(1 for r in results if r["passed"])
-    print("-" * 50)
-    print(f"accuracy    : {n_passed}/{n} ({round(100 * n_passed / n, 1)}%)")
-    print(
-        f"agent cost  : ${round(total_agent_cost, 5)} total, ${round(total_agent_cost / n, 6)}/query avg"
-    )
-    print(f"agent lat   : {round(total_agent_latency / n, 2)}s/query avg")
-    print(
-        f"judge cost  : ${round(total_judge_cost, 5)} total (evaluation-only overhead)"
-    )
-    step_cap_hits = [r["id"] for r in results if r["hit_step_cap"]]
-    if step_cap_hits:
-        print(f"step cap hit: {step_cap_hits}")
-    failed = [(r["id"], r["reason"]) for r in results if not r["passed"]]
-    if failed:
-        print("missed      :")
-        for qid, reason in failed:
-            print(f"  {qid}: {reason}")
+    print_report(results)
     print(f"wrote {DEV_ANSWERS_PATH} and {TRACE_PATH}")
 
 

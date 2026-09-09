@@ -11,6 +11,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import BaseModel
 
 from src.config import (
     ChatModelConfig,
@@ -29,6 +30,7 @@ class ChatResult:
     cost_usd: float
     prompt_tokens: int
     completion_tokens: int
+    parsed: BaseModel | None = None
 
 
 @dataclass
@@ -58,14 +60,20 @@ class LLM:
         messages: list[dict],
         model: str | None = None,
         temperature: float = 0.0,
+        response_model: type[BaseModel] | None = None,
         **kwargs,
     ) -> ChatResult:
-        """Send a chat completion request. Pinned to temperature=0 by default
-        so agent behavior and eval scores are reproducible run to run;
-        override via kwargs if a caller ever needs otherwise. Extra kwargs
-        (tools, tool_choice, ...) pass through."""
         config: ChatModelConfig = get_chat_model(model) if model else get_chat_model()
         client = self._client_for(config.base_url, config.api_key_env)
+
+        if response_model is not None:
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": response_model.__name__,
+                    "schema": response_model.model_json_schema(),
+                },
+            }
 
         start = time.perf_counter()
         completion = client.chat.completions.create(
@@ -73,13 +81,17 @@ class LLM:
         )
         latency_s = time.perf_counter() - start
 
+        message = completion.choices[0].message
         usage = completion.usage
         return ChatResult(
-            message=completion.choices[0].message,
+            message=message,
             latency_s=latency_s,
             cost_usd=config.cost(usage.prompt_tokens, usage.completion_tokens),
             prompt_tokens=usage.prompt_tokens,
             completion_tokens=usage.completion_tokens,
+            parsed=response_model.model_validate_json(message.content)
+            if response_model
+            else None,
         )
 
     def embed(
