@@ -1,4 +1,4 @@
-# Fireworks AI AMLE Take-Home: Agentic RAG for 10-K Analysis
+# Fireworks AI Applied MLE Take-Home: Agentic RAG for 10-K Analysis
 
 This take-home is meant to mirror part of the Applied Machine Learning Engineer role: supporting customers in their journey to build GenAI applications on Fireworks.
 
@@ -12,10 +12,12 @@ In this exercise, you should approach the problem like a Fireworks engineer supp
 4. Practical trade-offs: explain choices around models, latency, cost, reliability, and complexity.
 5. Communication: provide clear instructions, clear answers, and a concise technical report.
 
+
+
 ## Customer Scenario
 
-**From:** Natalie Brooks <natalie.brooks@acmecorp.example.com>  
-**To:** Solutions Team <solutions@fireworks.ai>  
+**From:** Natalie Brooks [natalie.brooks@acmecorp.example.com](mailto:natalie.brooks@acmecorp.example.com)  
+**To:** Solutions Team [solutions@fireworks.ai](mailto:solutions@fireworks.ai)  
 **Subject:** Help Needed: Local Research Assistant for 10-K Analysis
 
 Hi Fireworks team,
@@ -48,6 +50,8 @@ Director of Research Systems, Acme Corp
 - `scripts/`: helper scripts that can fetch the SEC source data, render PDFs, and build `financials.db`
 - `starter/`: lightweight starter dependencies for setup and experimentation
 - `setup.sh`: end-to-end local setup script
+
+
 
 ## What You Receive
 
@@ -87,75 +91,20 @@ Your system should:
 - return grounded answers that make it easy to inspect evidence
 - handle both straightforward retrieval and multi-step reasoning
 
-## Submission Guidelines
+---
 
-- Submit within the deadline provided by your recruiter.
-- You may use any Fireworks model and additional framework, database, or vector store.
-- You may use the internet, documentation, third-party packages, and AI coding tools.
-- If you use AI assistance, mention how in your report.
-- Keep external API usage to a reasonable prototype budget.
+## Running This Submission
 
-## Required Deliverables
+1. `./setup.sh` — sets up the venv and the provided data (skips anything already present).
+2. `uv pip install -r requirements.txt` — installs this submission's own dependencies (FastAPI, Chroma, etc.) into that venv.
+3. `export FIREWORKS_API_KEY=<your-key>`
+4. `python -m src.ingest` — builds the PDF search index (one-time, ~1-2 min, small Fireworks embedding cost). The index isn't shipped in this zip, so this step is required before filing-based questions will work.
+5. `uvicorn src.api:app --port 8000`
+6. Open `http://localhost:8000` in a browser to ask questions interactively, or `POST http://localhost:8000/api/chat` with `{"question": "..."}`.
 
-- A zip file containing your implementation.
-- A `README` in your submission with exact local run instructions, required environment variables, and any setup steps.
-- A local interactive entry point so a reviewer can ask ad hoc questions.
-- A `dev_answers.json` file with your answers to the 10 development questions.
-- A short report, about 1 to 2 pages, covering:
-  - what you built
-  - how the system is structured
-  - how you retrieve from SQL and PDFs
-  - how you evaluate the system
-  - what trade-offs you made and why
-  - what you would improve with more time
+To reproduce the dev-set evaluation: `python -m src.eval` (writes `questions/dev_answers.json` and `questions/eval_trace.json`).
 
-## `dev_answers.json` Format
+**Required environment variable:** `FIREWORKS_API_KEY`. See [REPORT.md](REPORT.md) for system design, evaluation, and trade-offs.
 
-Create `dev_answers.json` by copying `questions/dev_answers_example.json`, then fill in your answers as a JSON object keyed by question ID:
+---
 
-```json
-{
-  "q_001": "<your answer>",
-  "q_006": "<your answer>",
-  "q_008": "<your answer>"
-}
-```
-
-Answers may be short or long depending on the question. For synthesis questions, concise but well-supported answers are preferred.
-
-Because the dev answer key is public, `dev_answers.json` is not the hidden evaluation target. We still ask you to submit it so we can see the exact outputs your final system produced on the public development set.
-
-## Getting Started
-
-Run:
-
-```bash
-./setup.sh
-```
-
-What `setup.sh` does:
-
-- creates a local virtual environment with `uv`
-- installs setup and starter dependencies
-- downloads the SEC companyfacts JSON if needed
-- renders the six 10-K PDFs if needed
-- builds `data/financials.db` if needed
-
-Then inspect:
-
-- `data/financials.db`
-- `data/pdfs/`
-- `questions/dev_questions.json`
-- `questions/dev_questions_with_answers.json`
-
-You should use the public answer key to design your own evaluation approach for the dev set.
-
-## How We Will Review
-
-We will review your submission using:
-
-- the quality of the local interactive system
-- your ability to route between SQL and PDF-based evidence
-- how thoughtfully you evaluate your system against the public dev set
-- the clarity of your report and trade-off discussion
-- an internal held-out evaluation set

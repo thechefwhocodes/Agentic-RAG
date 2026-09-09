@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>10-K Research Assistant</title>
+<style>
+  html { color-scheme: light; }
+  body { font-family: -apple-system, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color: #222; background: #fff; }
+  h1 { font-size: 20px; }
+  #question { width: 100%; padding: 10px; font-size: 15px; box-sizing: border-box; }
+  #ask { margin-top: 8px; padding: 8px 16px; font-size: 15px; cursor: pointer; }
+  #ask:disabled { opacity: 0.5; cursor: default; }
+  #answer { white-space: pre-wrap; margin-top: 20px; line-height: 1.5; }
+  #meta { color: #777; font-size: 13px; margin-top: 8px; }
+  details { margin-top: 16px; border: 1px solid #ddd; border-radius: 6px; padding: 8px 12px; }
+  summary { cursor: pointer; font-weight: 600; }
+  .source { border-top: 1px solid #eee; padding: 8px 0; font-size: 13px; }
+  .source pre { white-space: pre-wrap; background: #f7f7f7; padding: 6px; border-radius: 4px; }
+  .error { color: #b00020; }
+</style>
+</head>
+<body>
+  <h1>10-K Research Assistant</h1>
+  <p>Ask a question about Apple, Microsoft, or Alphabet's financials or 10-K filings.</p>
+
+  <input id="question" type="text" placeholder="e.g. What was Apple's revenue in FY2025?">
+  <button id="ask">Ask</button>
+
+  <div id="answer"></div>
+  <div id="meta"></div>
+  <details id="evidence" style="display:none">
+    <summary>Evidence</summary>
+    <div id="sources"></div>
+  </details>
+
+<script>
+const questionEl = document.getElementById("question");
+const askBtn = document.getElementById("ask");
+const answerEl = document.getElementById("answer");
+const metaEl = document.getElementById("meta");
+const evidenceEl = document.getElementById("evidence");
+const sourcesEl = document.getElementById("sources");
+
+async function ask() {
+  const question = questionEl.value.trim();
+  if (!question) return;
+
+  askBtn.disabled = true;
+  answerEl.textContent = "Thinking...";
+  metaEl.textContent = "";
+  evidenceEl.style.display = "none";
+  sourcesEl.innerHTML = "";
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+
+    answerEl.textContent = data.answer || data.content || "(no answer)";
+    metaEl.textContent = `${data.latency_s?.toFixed(1)}s · $${data.cost_usd?.toFixed(5)}`;
+
+    if (data.sources?.length) {
+      for (const s of data.sources) {
+        const div = document.createElement("div");
+        div.className = "source";
+        if (s.type === "sql") {
+          div.innerHTML = `<strong>SQL</strong><pre>${escapeHtml(s.sql)}</pre><pre>${escapeHtml(JSON.stringify(s.rows ?? s.error, null, 2))}</pre>`;
+        } else {
+          const hits = (s.hits || []).map(h =>
+            `[${h.ticker} FY${h.fiscal_year} ${h.section} p${h.page}]\n${h.text}`
+          ).join("\n\n");
+          div.innerHTML = `<strong>Filing search: "${escapeHtml(s.query)}"</strong><pre>${escapeHtml(hits)}</pre>`;
+        }
+        sourcesEl.appendChild(div);
+      }
+      evidenceEl.style.display = "block";
+    }
+  } catch (err) {
+    answerEl.innerHTML = `<span class="error">Error: ${escapeHtml(err.message)}</span>`;
+  } finally {
+    askBtn.disabled = false;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+
+askBtn.addEventListener("click", ask);
+questionEl.addEventListener("keydown", e => { if (e.key === "Enter") ask(); });
+</script>
+</body>
+</html>
