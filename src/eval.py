@@ -60,15 +60,19 @@ def score_fuzzy_numeric(answer_text: str, gold_numeric: float) -> EvalResult:
     for value in found:
         if gold_numeric == 0:
             if value == 0:
-                return EvalResult("fuzzy_numeric", True, f"found {value}, matches gold 0")
+                return EvalResult(
+                    "fuzzy_numeric", True, f"found {value}, matches gold 0"
+                )
             continue
         if abs(value - gold_numeric) / abs(gold_numeric) <= NUMERIC_TOLERANCE:
             return EvalResult(
-                "fuzzy_numeric", True,
+                "fuzzy_numeric",
+                True,
                 f"found {value}, within {NUMERIC_TOLERANCE:.0%} of gold {gold_numeric}",
             )
     return EvalResult(
-        "fuzzy_numeric", False,
+        "fuzzy_numeric",
+        False,
         f"expected ~{gold_numeric}, found no matching number among {found[:5]}",
     )
 
@@ -80,9 +84,17 @@ def score_exact_match_entity(answer_text: str, gold_answer: str) -> EvalResult:
     for ticker, aliases in COMPANY_ALIASES.items():
         if any(alias in gold_lower for alias in aliases):
             if any(alias in answer_lower for alias in aliases):
-                return EvalResult("exact_match_entity", True, f"answer names {ticker}, matching gold")
-            return EvalResult("exact_match_entity", False, f"gold names {ticker}, not found in answer")
-    return EvalResult("exact_match_entity", False, "could not identify expected company in gold answer")
+                return EvalResult(
+                    "exact_match_entity", True, f"answer names {ticker}, matching gold"
+                )
+            return EvalResult(
+                "exact_match_entity", False, f"gold names {ticker}, not found in answer"
+            )
+    return EvalResult(
+        "exact_match_entity",
+        False,
+        "could not identify expected company in gold answer",
+    )
 
 
 def summarize_evidence(evidence: list[Evidence]) -> str:
@@ -96,13 +108,17 @@ def summarize_evidence(evidence: list[Evidence]) -> str:
         else:
             for h in e.hits:
                 lines.append(
-                    f"Filing [{h.ticker} FY{h.fiscal_year} {h.section} p{h.page}]: {h.text[:300]}"
+                    f"Filing [{h.ticker} FY{h.fiscal_year} {h.section} p{h.page}]: {h.text}"
                 )
     return "\n".join(lines) if lines else "(no evidence retrieved)"
 
 
 def score_llm_judge(
-    llm: LLM, question: str, gold_answer: str, answer_text: str, evidence: list[Evidence]
+    llm: LLM,
+    question: str,
+    gold_answer: str,
+    answer_text: str,
+    evidence: list[Evidence],
 ) -> EvalResult:
     prompt = JUDGE_PROMPT.format(
         question=question,
@@ -113,13 +129,24 @@ def score_llm_judge(
     result = llm.chat([{"role": "user", "content": prompt}])
     match = re.search(r"\{.*\}", result.message.content or "", re.DOTALL)
     if not match:
-        return EvalResult("llm_judge", False, "judge did not return JSON", judge_cost_usd=result.cost_usd)
+        return EvalResult(
+            "llm_judge",
+            False,
+            "judge did not return JSON",
+            judge_cost_usd=result.cost_usd,
+        )
     try:
         parsed = json.loads(match.group(0))
     except json.JSONDecodeError:
-        return EvalResult("llm_judge", False, "judge JSON unparseable", judge_cost_usd=result.cost_usd)
+        return EvalResult(
+            "llm_judge", False, "judge JSON unparseable", judge_cost_usd=result.cost_usd
+        )
 
-    passed = bool(parsed.get("correctness") and parsed.get("groundedness") and parsed.get("completeness"))
+    passed = bool(
+        parsed.get("correctness")
+        and parsed.get("groundedness")
+        and parsed.get("completeness")
+    )
     return EvalResult(
         method="llm_judge",
         passed=passed,
@@ -138,14 +165,16 @@ def score_question(llm: LLM, q: dict, answer: Answer) -> EvalResult:
     if method == "exact_match_entity":
         return score_exact_match_entity(answer.text, q["gold_answer"])
     if method == "llm_judge":
-        return score_llm_judge(llm, q["question"], q["gold_answer"], answer.text, answer.evidence)
+        return score_llm_judge(
+            llm, q["question"], q["gold_answer"], answer.text, answer.evidence
+        )
     raise ValueError(f"Unknown evaluation method: {method}")
 
 
 def main() -> None:
-    questions = json.loads(QUESTIONS_PATH.read_text())
     llm = LLM()
     agent = Agent(llm=llm)
+    questions = json.loads(QUESTIONS_PATH.read_text())
 
     results, dev_answers = [], {}
     total_agent_latency, total_agent_cost, total_judge_cost = 0.0, 0.0, 0.0
@@ -159,14 +188,20 @@ def main() -> None:
         total_judge_cost += score.judge_cost_usd
 
         dev_answers[q["id"]] = answer.text
-        results.append({
-            "id": q["id"], "tier": q["tier"], "question": q["question"],
-            "answer": answer.text, "gold_answer": q["gold_answer"],
-            "latency_s": answer.latency_s, "cost_usd": answer.cost_usd,
-            "hit_step_cap": answer.hit_step_cap,
-            "evidence": [e.model_dump() for e in answer.evidence],
-            **asdict(score),
-        })
+        results.append(
+            {
+                "id": q["id"],
+                "tier": q["tier"],
+                "question": q["question"],
+                "answer": answer.text,
+                "gold_answer": q["gold_answer"],
+                "latency_s": answer.latency_s,
+                "cost_usd": answer.cost_usd,
+                "hit_step_cap": answer.hit_step_cap,
+                "evidence": [e.model_dump() for e in answer.evidence],
+                **asdict(score),
+            }
+        )
 
         status = "PASS" if score.passed else "FAIL"
         reason_suffix = "" if score.passed else f"  - {score.reason}"
@@ -179,9 +214,13 @@ def main() -> None:
     n_passed = sum(1 for r in results if r["passed"])
     print("-" * 50)
     print(f"accuracy    : {n_passed}/{n} ({round(100 * n_passed / n, 1)}%)")
-    print(f"agent cost  : ${round(total_agent_cost, 5)} total, ${round(total_agent_cost / n, 6)}/query avg")
+    print(
+        f"agent cost  : ${round(total_agent_cost, 5)} total, ${round(total_agent_cost / n, 6)}/query avg"
+    )
     print(f"agent lat   : {round(total_agent_latency / n, 2)}s/query avg")
-    print(f"judge cost  : ${round(total_judge_cost, 5)} total (evaluation-only overhead)")
+    print(
+        f"judge cost  : ${round(total_judge_cost, 5)} total (evaluation-only overhead)"
+    )
     step_cap_hits = [r["id"] for r in results if r["hit_step_cap"]]
     if step_cap_hits:
         print(f"step cap hit: {step_cap_hits}")
