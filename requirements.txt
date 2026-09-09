@@ -1,0 +1,5 @@
+# Additional dependencies on top of starter/requirements.txt
+chromadb
+fastapi
+uvicorn
+python-dotenv
